@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Link from 'next/link';
 
 interface CourseSchedule {
   id: string;
@@ -47,24 +46,11 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [selectedRoom, setSelectedRoom] = useState<RoomStatus | null>(null);
 
-  const [scheduleToDelete, setScheduleToDelete] = useState<{ id: string; name: string } | null>(null);
-  const [roomToDelete, setRoomToDelete] = useState<string | null>(null);
-
-  const [allBookings, setAllBookings] = useState<StudentBooking[]>([
-    {
-      id: 'demo-1',
-      roomName: 'lab1',
-      studentName: 'กลุ่มศึกษา 1',
-      peopleCount: 12,
-      bookedAt: '14:30 น.',
-    },
-  ]);
-
+  const [allBookings, setAllBookings] = useState<StudentBooking[]>([]);
   const [peopleInput, setPeopleInput] = useState<number>(1);
   const [showMyBookingsModal, setShowMyBookingsModal] = useState(false);
-  const [userRole] = useState<'INSTRUCTOR' | 'STUDENT'>('INSTRUCTOR');
 
-  // ดึงข้อมูลสถานะห้อง (ชี้ไปที่พอร์ต 3003 ถูกต้องตามระบบ)
+  // ดึงข้อมูลสถานะห้องจาก Backend (พอร์ต 3003)
   useEffect(() => {
     let isMounted = true;
 
@@ -76,11 +62,19 @@ export default function Home() {
         
         if (isMounted) {
           const updatedRooms = Array.isArray(data) ? data : [];
-          setRooms(updatedRooms);
+          
+          // กรองเอาเฉพาะห้องที่มีตารางเรียน (allSchedules มีค่ามากกว่า 0) 
+          // หรือห้องที่มีคนจองแล้ว เพื่อไม่ให้ห้องเปล่าๆ (lab1, lab2, lab3 ที่ไม่มีวิชา) โผล่มาค้าง
+          const activeRooms = updatedRooms.filter(
+            (r) => (r.allSchedules && r.allSchedules.length > 0) || 
+                   allBookings.some((b) => b.roomName === r.roomName)
+          );
+
+          setRooms(activeRooms);
 
           setSelectedRoom((prevSelected) => {
             if (!prevSelected) return null;
-            return updatedRooms.find((r) => r.roomName === prevSelected.roomName) || prevSelected;
+            return activeRooms.find((r) => r.roomName === prevSelected.roomName) || null;
           });
         }
       } catch (err) {
@@ -100,9 +94,9 @@ export default function Home() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [allBookings]);
 
-  // ฟังก์ชันรีโหลดข้อมูล (ชี้ไปที่พอร์ต 3003)
+  // ฟังก์ชันรีโหลดข้อมูล
   const handleReload = async () => {
     setLoading(true);
     try {
@@ -110,12 +104,13 @@ export default function Home() {
       if (!res.ok) throw new Error('Network response was not ok');
       const data = await res.json();
       const updatedRooms = Array.isArray(data) ? data : [];
-      setRooms(updatedRooms);
+      
+      const activeRooms = updatedRooms.filter(
+        (r) => (r.allSchedules && r.allSchedules.length > 0) || 
+               allBookings.some((b) => b.roomName === r.roomName)
+      );
 
-      setSelectedRoom((prevSelected) => {
-        if (!prevSelected) return null;
-        return updatedRooms.find((r) => r.roomName === prevSelected.roomName) || prevSelected;
-      });
+      setRooms(activeRooms);
     } catch (err) {
       console.error('Error fetching room status:', err);
       setRooms([]);
@@ -166,67 +161,6 @@ export default function Home() {
     alert('❌ ยกเลิกการจองเรียบร้อยแล้ว');
   };
 
-  const confirmDeleteSchedule = async () => {
-    if (!scheduleToDelete) return;
-
-    try {
-      const res = await fetch(`http://localhost:3003/schedules/${scheduleToDelete.id}`, {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-role': userRole,
-        },
-      });
-
-      if (res.ok) {
-        alert(`✅ ลบตารางวิชา "${scheduleToDelete.name}" เรียบร้อยแล้ว`);
-        setScheduleToDelete(null);
-        await handleReload();
-      } else {
-        const errorData = await res.json();
-        alert(errorData.message || 'ไม่สามารถลบข้อมูลได้');
-      }
-    } catch (err) {
-      console.error(err);
-      alert('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้');
-    }
-  };
-
-  const confirmDeleteRoom = async () => {
-    if (!roomToDelete) return;
-
-    try {
-      const res = await fetch(`http://localhost:3003/rooms/${roomToDelete}`, {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-role': userRole,
-        },
-      });
-
-      if (res.ok) {
-        alert(`✅ ลบห้อง "${roomToDelete}" ออกจากระบบเรียบร้อยแล้ว`);
-        setRoomToDelete(null);
-        setSelectedRoom(null);
-        await handleReload();
-      } else {
-        // หากฝั่ง Backend ยังไม่มี Endpoint /rooms หรือลบผ่านตารางสอน ให้สำรองลองลบผ่านเงื่อนไขตารางหรือแจ้งเตือน
-        const errorData = await res.json().catch(() => ({}));
-        alert(errorData.message || `✅ ลบห้อง "${roomToDelete}" ออกจากหน้าจอเรียบร้อยแล้ว`);
-        setRooms((prev) => prev.filter((r) => r.roomName !== roomToDelete));
-        setRoomToDelete(null);
-        setSelectedRoom(null);
-      }
-    } catch (err) {
-      console.error(err);
-      // กรณีเน็ตเวิร์กสำรองเผื่อให้ลบออกจาก State หน้าจอได้ทันทีเพื่อความลื่นไหล
-      setRooms((prev) => prev.filter((r) => r.roomName !== roomToDelete));
-      setRoomToDelete(null);
-      setSelectedRoom(null);
-      alert(`✅ ลบห้อง "${roomToDelete}" ออกจากระบบเรียบร้อยแล้ว`);
-    }
-  };
-
   return (
     <main className="min-h-screen bg-slate-50 p-4 sm:p-8 text-slate-900">
       <div className="max-w-3xl mx-auto">
@@ -238,7 +172,7 @@ export default function Home() {
               🏫 ระบบจองห้องปฏิบัติการ
             </h1>
             <p className="text-xs sm:text-sm text-slate-500 mt-1">
-              ดูสถานะห้องปฏิบัติการแบบ Real-time และเลือกจองห้อง
+              ดูสถานะห้องปฏิบัติการแบบ Real-time และเลือกจองห้องสำหรับนักศึกษา
             </p>
           </div>
           <div className="flex gap-2">
@@ -248,12 +182,6 @@ export default function Home() {
             >
               📋 การจองของฉัน ({allBookings.filter((b) => b.studentName.includes('คุณ')).length})
             </button>
-            <Link
-              href="/instructor"
-              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-semibold px-4 py-2.5 rounded-lg shadow-sm transition"
-            >
-              + กรอกตารางวิชา (อาจารย์)
-            </Link>
           </div>
         </div>
 
@@ -265,12 +193,12 @@ export default function Home() {
             <p className="text-slate-400 text-sm py-4">กำลังดึงสถานะห้อง...</p>
           ) : !Array.isArray(rooms) || rooms.length === 0 ? (
             <div className="text-center py-6">
-              <p className="text-slate-500 text-sm">ไม่พบข้อมูลห้องปฏิบัติการ หรือยังไม่มีการเพิ่มตารางเรียน</p>
+              <p className="text-slate-500 text-sm">ยังไม่มีห้องปฏิบัติการที่มีตารางเรียนในขณะนี้</p>
               <button 
                 onClick={handleReload}
                 className="mt-3 text-xs text-blue-600 font-semibold underline"
               >
-                ลองใหม่อีกครั้ง
+                รีเฟรชสถานะ
               </button>
             </div>
           ) : (
@@ -331,35 +259,19 @@ export default function Home() {
                   ></span>
                   {selectedRoom.roomName}
                 </h3>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setRoomToDelete(selectedRoom.roomName)}
-                    className="text-xs bg-red-100 hover:bg-red-200 text-red-700 font-bold px-2.5 py-1.5 rounded-lg transition shadow-sm"
-                  >
-                    🗑️ ลบห้องนี้
-                  </button>
-                  <button
-                    onClick={() => setSelectedRoom(null)}
-                    className="text-slate-400 hover:text-slate-600 font-bold text-lg px-1"
-                  >
-                    ✕
-                  </button>
-                </div>
+                <button
+                  onClick={() => setSelectedRoom(null)}
+                  className="text-slate-400 hover:text-slate-600 font-bold text-lg px-1"
+                >
+                  ✕
+                </button>
               </div>
 
               {selectedRoom.isOccupied && selectedRoom.currentClass ? (
                 <div className="bg-red-50 border border-red-200 p-4 rounded-xl mb-4">
-                  <div className="flex justify-between items-start">
-                    <span className="inline-block bg-red-500 text-white text-xs px-2.5 py-1 rounded-full font-bold mb-2">
-                      🔴 กำลังใช้งาน (ติดเรียน)
-                    </span>
-                    <button
-                      onClick={() => setScheduleToDelete({ id: selectedRoom.currentClass!.id, name: selectedRoom.currentClass!.courseCode })}
-                      className="text-xs bg-red-600 hover:bg-red-700 text-white px-2.5 py-1 rounded-lg font-bold transition shadow-sm"
-                    >
-                      🗑️ ลบวิชานี้
-                    </button>
-                  </div>
+                  <span className="inline-block bg-red-500 text-white text-xs px-2.5 py-1 rounded-full font-bold mb-2">
+                    🔴 กำลังใช้งาน (ติดเรียน)
+                  </span>
                   <p className="text-sm font-semibold text-red-900 mt-1">
                     วิชา: {selectedRoom.currentClass.courseCode}{' '}
                     {selectedRoom.currentClass.courseName}
@@ -389,39 +301,6 @@ export default function Home() {
                       ไม่มีการเรียนการสอนต่อในช่วงเวลาที่เหลือของวัน
                     </p>
                   )}
-                </div>
-              )}
-
-              {/* ส่วนแสดงตารางเรียนทั้งหมดของห้องนี้เพื่อให้สามารถกดลบได้ตลอดเวลา */}
-              {selectedRoom.allSchedules && selectedRoom.allSchedules.length > 0 && (
-                <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-xl mb-4">
-                  <h4 className="text-xs font-bold text-slate-700 mb-2 flex items-center justify-between">
-                    <span>📖 ตารางเรียนทั้งหมดในห้องนี้วันนี้ ({selectedRoom.allSchedules.length} วิชา):</span>
-                  </h4>
-                  <div className="space-y-2 max-h-40 overflow-y-auto">
-                    {selectedRoom.allSchedules.map((sch) => (
-                      <div
-                        key={sch.id}
-                        className="bg-white p-2.5 rounded-lg border border-slate-200 text-xs flex justify-between items-center"
-                      >
-                        <div>
-                          <span className="font-bold text-slate-800">
-                            {sch.courseCode} {sch.courseName}
-                          </span>
-                          <p className="text-[11px] text-slate-500">ผู้สอน: {sch.instructorName}</p>
-                          <span className="font-mono text-[10px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-600 font-bold mt-1 inline-block">
-                            {sch.startTime} - {sch.endTime} น.
-                          </span>
-                        </div>
-                        <button
-                          onClick={() => setScheduleToDelete({ id: sch.id, name: `${sch.courseCode} (${sch.startTime}-${sch.endTime})` })}
-                          className="text-[11px] bg-red-100 hover:bg-red-200 text-red-700 font-bold py-1 px-2.5 rounded-md transition"
-                        >
-                          🗑️ ลบ
-                        </button>
-                      </div>
-                    ))}
-                  </div>
                 </div>
               )}
 
@@ -559,64 +438,6 @@ export default function Home() {
               >
                 ปิดหน้าต่าง
               </button>
-            </div>
-          </div>
-        )}
-
-        {/* Modal ยืนยันการลบตารางวิชา */}
-        {scheduleToDelete && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
-            <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl border border-slate-100 text-center">
-              <h4 className="text-lg font-bold text-slate-900 mb-2">
-                🗑️ ยืนยันการลบตารางเรียน
-              </h4>
-              <p className="text-xs text-slate-600 mb-6">
-                คุณต้องการลบรายการวิชา <strong className="text-red-600">{scheduleToDelete.name}</strong> ออกจากตารางใช่หรือไม่?
-              </p>
-
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setScheduleToDelete(null)}
-                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold py-2 rounded-lg text-sm transition"
-                >
-                  ยกเลิก
-                </button>
-                <button
-                  onClick={confirmDeleteSchedule}
-                  className="flex-1 bg-red-600 hover:bg-red-700 text-white font-semibold py-2 rounded-lg text-sm shadow-md transition"
-                >
-                  ยืนยันลบ
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Modal ยืนยันการลบห้องปฏิบัติการทั้งห้อง */}
-        {roomToDelete && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[70]">
-            <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl border border-slate-100 text-center">
-              <h4 className="text-lg font-bold text-slate-900 mb-2">
-                ⚠️ ยืนยันการลบห้องปฏิบัติการ
-              </h4>
-              <p className="text-xs text-slate-600 mb-6">
-                คุณต้องการลบห้อง <strong className="text-red-600">{roomToDelete}</strong> ออกจากระบบใช่หรือไม่? ข้อมูลตารางเรียนทั้งหมดในห้องนี้จะถูกลบไปด้วย
-              </p>
-
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setRoomToDelete(null)}
-                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold py-2 rounded-lg text-sm transition"
-                >
-                  ยกเลิก
-                </button>
-                <button
-                  onClick={confirmDeleteRoom}
-                  className="flex-1 bg-red-600 hover:bg-red-700 text-white font-semibold py-2 rounded-lg text-sm shadow-md transition"
-                >
-                  ยืนยันลบห้อง
-                </button>
-              </div>
             </div>
           </div>
         )}
