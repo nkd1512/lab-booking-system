@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: lab-booking-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres    # <--- ตั้งเป็นคำนี้เลย จำง่ายดีครับ
+      POSTGRES_DB: lab_booking
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
